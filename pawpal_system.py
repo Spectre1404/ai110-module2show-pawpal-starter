@@ -2,13 +2,13 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, date, timedelta
+from itertools import combinations
 from typing import Dict, List, Optional, Tuple
 
 
 @dataclass
 class Task:
     """Represents a single care activity scheduled for a pet."""
-
     description: str
     pet_name: str
     time: datetime
@@ -26,7 +26,6 @@ class Task:
 @dataclass
 class Pet:
     """Represents a pet profile containing basic info and a task list."""
-
     name: str
     species: str
     breed: Optional[str] = None
@@ -108,43 +107,39 @@ class Scheduler:
         return result
 
     def mark_task_complete(self, task_id: str) -> None:
-    """Mark the task matching the given ID as complete and schedule its next recurrence if needed."""
-    for pet in self.owner.pets.values():
-        for task in list(pet.tasks):
-            if task.id == task_id:
-                if task.completed:        # ← NEW: prevents double recurrence
+        """Mark the task matching the given ID as complete and schedule its next recurrence if needed."""
+        for pet in self.owner.pets.values():
+            for task in list(pet.tasks):
+                if task.id == task_id:
+                    if task.completed:
+                        return
+                    task.mark_complete()
+                    if task.frequency == "daily":
+                        delta = timedelta(days=1)
+                    elif task.frequency == "weekly":
+                        delta = timedelta(weeks=1)
+                    else:
+                        return
+                    new_task = Task(
+                        description=task.description,
+                        pet_name=task.pet_name,
+                        time=task.time + delta,
+                        duration_minutes=task.duration_minutes,
+                        priority=task.priority,
+                        frequency=task.frequency,
+                    )
+                    pet.add_task(new_task)
                     return
-                task.mark_complete()
-                if task.frequency == "daily":
-                    delta = timedelta(days=1)
-                elif task.frequency == "weekly":
-                    delta = timedelta(weeks=1)
-                else:
-                    return
-                new_task = Task(
-                    description=task.description,
-                    pet_name=task.pet_name,
-                    time=task.time + delta,
-                    duration_minutes=task.duration_minutes,
-                    priority=task.priority,
-                    frequency=task.frequency,
-                )
-                pet.add_task(new_task)
-                return
 
     def detect_conflicts(self, tasks: List[Task]) -> List[Tuple[Task, Task]]:
         """Return pairs of tasks that overlap based on start time and duration."""
         conflicts: List[Tuple[Task, Task]] = []
         sorted_tasks = self.sort_by_time(tasks)
-        n = len(sorted_tasks)
-        for i in range(n):
-            for j in range(i + 1, n):
-                a = sorted_tasks[i]
-                b = sorted_tasks[j]
-                a_end = a.time + timedelta(minutes=a.duration_minutes)
-                b_end = b.time + timedelta(minutes=b.duration_minutes)
-                if a.time < b_end and b.time < a_end:
-                    conflicts.append((a, b))
+        for a, b in combinations(sorted_tasks, 2):
+            a_end = a.time + timedelta(minutes=a.duration_minutes)
+            b_end = b.time + timedelta(minutes=b.duration_minutes)
+            if a.time < b_end and b.time < a_end:
+                conflicts.append((a, b))
         return conflicts
 
     def get_recurring_tasks(self) -> List[Task]:
