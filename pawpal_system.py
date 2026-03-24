@@ -1,10 +1,16 @@
 from __future__ import annotations
 import uuid
-from dataclasses import dataclass, field
-from datetime import datetime, date, timedelta
+import json
+import os
+from dataclasses import dataclass, field, replace
+from datetime import datetime, date, timedelta, time
 from itertools import combinations
 from typing import Dict, List, Optional, Tuple
 
+
+# ─────────────────────────────────────────────
+# Task
+# ─────────────────────────────────────────────
 
 @dataclass
 class Task:
@@ -22,6 +28,38 @@ class Task:
         """Set this task's completed status to True."""
         self.completed = True
 
+    def to_dict(self) -> dict:
+        """Serialize this Task to a JSON-compatible dictionary."""
+        return {
+            "id": self.id,
+            "description": self.description,
+            "pet_name": self.pet_name,
+            "time": self.time.isoformat(),
+            "duration_minutes": self.duration_minutes,
+            "priority": self.priority,
+            "frequency": self.frequency,
+            "completed": self.completed,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> Task:
+        """Deserialize a Task from a dictionary loaded from JSON."""
+        task = cls(
+            description=data["description"],
+            pet_name=data["pet_name"],
+            time=datetime.fromisoformat(data["time"]),
+            duration_minutes=data["duration_minutes"],
+            priority=data["priority"],
+            frequency=data["frequency"],
+            completed=data["completed"],
+        )
+        task.id = data["id"]
+        return task
+
+
+# ─────────────────────────────────────────────
+# Pet
+# ─────────────────────────────────────────────
 
 @dataclass
 class Pet:
@@ -40,6 +78,33 @@ class Pet:
         """Return a shallow copy of this pet's task list to prevent mutation."""
         return list(self.tasks)
 
+    def to_dict(self) -> dict:
+        """Serialize this Pet (and all its tasks) to a JSON-compatible dictionary."""
+        return {
+            "name": self.name,
+            "species": self.species,
+            "breed": self.breed,
+            "age": self.age,
+            "tasks": [t.to_dict() for t in self.tasks],
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> Pet:
+        """Deserialize a Pet and its tasks from a dictionary loaded from JSON."""
+        pet = cls(
+            name=data["name"],
+            species=data["species"],
+            breed=data.get("breed"),
+            age=data.get("age"),
+        )
+        for t in data.get("tasks", []):
+            pet.add_task(Task.from_dict(t))
+        return pet
+
+
+# ─────────────────────────────────────────────
+# Owner
+# ─────────────────────────────────────────────
 
 class Owner:
     """Represents the app user who owns and manages one or more pets."""
@@ -64,6 +129,41 @@ class Owner:
             all_tasks.extend(pet.get_tasks())
         return all_tasks
 
+    # ── Challenge 2: JSON Persistence ──────────────────────────────────
+
+    def save_to_json(self, filepath: str = "data.json") -> None:
+        """
+        Serialize the entire Owner (all pets and tasks) to a JSON file.
+        Creates or overwrites the file at the given filepath.
+        Agent Mode implementation: Owner.save_to_json() → data.json
+        """
+        data = {
+            "owner_name": self.name,
+            "pets": [pet.to_dict() for pet in self.pets.values()],
+        }
+        with open(filepath, "w") as f:
+            json.dump(data, f, indent=2)
+
+    @classmethod
+    def load_from_json(cls, filepath: str = "data.json") -> Owner:
+        """
+        Deserialize an Owner with all pets and tasks from a JSON file.
+        Returns a fresh Owner named 'My Household' if no file is found.
+        Agent Mode implementation: Owner.load_from_json() ← data.json
+        """
+        if not os.path.exists(filepath):
+            return cls(name="My Household")
+        with open(filepath, "r") as f:
+            data = json.load(f)
+        owner = cls(name=data["owner_name"])
+        for pet_data in data.get("pets", []):
+            owner.add_pet(Pet.from_dict(pet_data))
+        return owner
+
+
+# ─────────────────────────────────────────────
+# Scheduler
+# ─────────────────────────────────────────────
 
 class Scheduler:
     """Algorithmic engine that retrieves, organizes, and manages pet tasks."""
@@ -72,11 +172,12 @@ class Scheduler:
         """Initialize the Scheduler with a reference to the Owner instance."""
         self.owner = owner
 
-    def get_todays_tasks(self, target_date: date) -> List[Task]:
-        """Return all tasks whose scheduled date matches the given target date."""
+    def get_todays_tasks(self, target_date: date = None) -> List[Task]:
+        """Return all tasks whose scheduled date matches the given target date (defaults to today)."""
+        target = target_date or date.today()
         return [
             task for task in self.owner.get_all_tasks()
-            if task.time.date() == target_date
+            if task.time.date() == target
         ]
 
     def sort_by_time(self, tasks: List[Task], priority_first: bool = False) -> List[Task]:
@@ -107,26 +208,31 @@ class Scheduler:
         return result
 
     def mark_task_complete(self, task_id: str) -> None:
-        """Mark the task matching the given ID as complete and schedule its next recurrence if needed."""
+        """
+        Mark the task matching the given ID as complete.
+        Uses dataclasses.replace() to clone recurring tasks — more Pythonic
+        than deepcopy for flat dataclasses (Claude 3.5 Sonnet recommendation,
+        Challenge 5 model comparison winner).
+        """
         for pet in self.owner.pets.values():
             for task in list(pet.tasks):
                 if task.id == task_id:
                     if task.completed:
-                        return
+                        return                          # guard: no double-recurrence
                     task.mark_complete()
                     if task.frequency == "daily":
                         delta = timedelta(days=1)
                     elif task.frequency == "weekly":
                         delta = timedelta(weeks=1)
                     else:
-                        return
-                    new_task = Task(
-                        description=task.description,
-                        pet_name=task.pet_name,
+                        return                          # "once" — no recurrence
+                    # dataclasses.replace() produces an immutable clone;
+                    # the original completed task is preserved in history
+                    new_task = replace(
+                        task,
                         time=task.time + delta,
-                        duration_minutes=task.duration_minutes,
-                        priority=task.priority,
-                        frequency=task.frequency,
+                        completed=False,
+                        id=str(uuid.uuid4()),
                     )
                     pet.add_task(new_task)
                     return
@@ -148,3 +254,42 @@ class Scheduler:
             task for task in self.owner.get_all_tasks()
             if not task.completed and task.frequency in {"daily", "weekly"}
         ]
+
+    # ── Challenge 1: Next Available Slot Algorithm ─────────────────────
+
+    def find_next_available_slot(
+        self,
+        duration_minutes: int,
+        preferred_date: date = None,
+        start_hour: int = 8,
+        end_hour: int = 20,
+    ) -> Optional[datetime]:
+        """
+        Find the earliest open time slot of a given duration with no conflicts.
+
+        Algorithm:
+        - Scans from start_hour to end_hour in 30-minute increments
+        - For each candidate window, checks interval overlap against all
+          existing tasks scheduled that day
+        - Returns the first conflict-free window, or None if none found
+
+        Time complexity: O(n * k) where n = existing tasks, k = scan slots
+        Typical daily schedule: n < 20, k < 24 — effectively O(1)
+        """
+        target    = preferred_date or date.today()
+        tasks     = self.get_todays_tasks(target)
+        candidate = datetime.combine(target, time(start_hour, 0))
+        window_end = datetime.combine(target, time(end_hour, 0))
+
+        while candidate + timedelta(minutes=duration_minutes) <= window_end:
+            candidate_end = candidate + timedelta(minutes=duration_minutes)
+            conflict = any(
+                task.time < candidate_end and
+                (task.time + timedelta(minutes=task.duration_minutes)) > candidate
+                for task in tasks
+            )
+            if not conflict:
+                return candidate
+            candidate += timedelta(minutes=30)
+
+        return None  # no open slot found in the scanning window
