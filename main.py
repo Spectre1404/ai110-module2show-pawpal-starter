@@ -1,6 +1,16 @@
 from datetime import datetime, date, timedelta
+from tabulate import tabulate
 from pawpal_system import Owner, Pet, Task, Scheduler
 
+# ── Challenge 3 & 4: Emoji maps ───────────────────────────────────────────────
+PRIORITY_EMOJI = {"High": "🔴", "Medium": "🟡", "Low": "🟢"}
+SPECIES_EMOJI  = {"dog": "🐶", "cat": "🐱", "bird": "🐦",
+                  "rabbit": "🐰", "fish": "🐠", "other": "🐾"}
+
+
+# ─────────────────────────────────────────────
+# Demo Data
+# ─────────────────────────────────────────────
 
 def build_demo_data() -> Owner:
     """Create a demo owner with two pets and several tasks."""
@@ -17,7 +27,6 @@ def build_demo_data() -> Owner:
         priority="High",
         frequency="daily",
     ))
-
     bella.add_task(Task(
         description="Feed Breakfast",
         pet_name="Bella",
@@ -26,7 +35,6 @@ def build_demo_data() -> Owner:
         priority="High",
         frequency="daily",
     ))
-
     bella.add_task(Task(
         description="Heartworm Medication",
         pet_name="Bella",
@@ -47,7 +55,6 @@ def build_demo_data() -> Owner:
         priority="Medium",
         frequency="daily",
     ))
-
     luna.add_task(Task(
         description="Vet Appointment",
         pet_name="Luna",
@@ -56,7 +63,6 @@ def build_demo_data() -> Owner:
         priority="High",
         frequency="once",
     ))
-
     luna.add_task(Task(
         description="Evening Playtime",
         pet_name="Luna",
@@ -71,69 +77,102 @@ def build_demo_data() -> Owner:
     return owner
 
 
+# ─────────────────────────────────────────────
+# Challenge 4: tabulate-powered print helpers
+# ─────────────────────────────────────────────
+
+def _task_rows(tasks: list[Task], owner: Owner) -> list[list]:
+    """Build display rows for a tabulate table from a task list."""
+    rows = []
+    for t in tasks:
+        pet        = owner.get_pet(t.pet_name)
+        species    = pet.species.lower() if pet else "other"
+        p_emoji    = PRIORITY_EMOJI.get(t.priority, "⚪")
+        s_emoji    = SPECIES_EMOJI.get(species, "🐾")
+        status     = "✅" if t.completed else "⏳"
+        rows.append([
+            status,
+            f"{p_emoji} {t.priority}",
+            f"{s_emoji} {t.pet_name}",
+            t.description,
+            t.time.strftime("%I:%M %p"),
+            f"{t.duration_minutes} min",
+            t.frequency.capitalize(),
+        ])
+    return rows
+
+
 def print_schedule(scheduler: Scheduler) -> None:
-    """Print a formatted Today's Schedule to the terminal."""
+    """Print a tabulate-formatted Today's Schedule to the terminal."""
     today = date.today()
-    tasks = scheduler.get_todays_tasks(today)
-    tasks = scheduler.sort_by_time(tasks)
+    tasks = scheduler.sort_by_time(scheduler.get_todays_tasks(today))
 
-    print("\n" + "-" * 55)
-    print(f"  PawPal+ -- Today's Schedule ({today})")
-    print("-" * 55)
-
+    print(f"\n🐾  PawPal+ — Today's Schedule ({today})")
     if not tasks:
-        print("  No tasks scheduled for today.")
-    else:
-        for task in tasks:
-            status = "[DONE]" if task.completed else "[    ]"
-            time_str = task.time.strftime("%I:%M %p")
-            print(
-                f"  {status}  {time_str}  "
-                f"{task.priority:<6}  "
-                f"{task.pet_name:<6}  "
-                f"{task.description}  "
-                f"({task.duration_minutes} min)"
-            )
+        print("  No tasks scheduled for today.\n")
+        return
 
-    print("-" * 55)
-    print(f"  Total tasks: {len(tasks)}")
-    print("-" * 55 + "\n")
+    headers = ["", "Priority", "Pet", "Task", "Time", "Duration", "Repeat"]
+    rows    = _task_rows(tasks, scheduler.owner)
+    print(tabulate(rows, headers=headers, tablefmt="rounded_outline"))
+    print(f"  Total tasks: {len(tasks)}\n")
 
 
 def print_conflicts(scheduler: Scheduler) -> None:
     """Print any scheduling conflicts detected for today."""
-    today = date.today()
-    tasks = scheduler.get_todays_tasks(today)
+    today     = date.today()
+    tasks     = scheduler.get_todays_tasks(today)
     conflicts = scheduler.detect_conflicts(tasks)
 
     if conflicts:
-        print("WARNING -- CONFLICTS DETECTED:")
+        print("⚠️  CONFLICTS DETECTED:")
+        rows = []
         for t1, t2 in conflicts:
-            print(
-                f"  {t1.time.strftime('%I:%M %p')}: "
-                f"{t1.pet_name} ({t1.description}) "
-                f"conflicts with {t2.pet_name} ({t2.description})"
-            )
+            t1_end = t1.time + timedelta(minutes=t1.duration_minutes)
+            rows.append([
+                f"{PRIORITY_EMOJI.get(t1.priority,'')} {t1.description}",
+                f"{t1.time.strftime('%I:%M %p')} – {t1_end.strftime('%I:%M %p')}",
+                "overlaps ↔",
+                f"{PRIORITY_EMOJI.get(t2.priority,'')} {t2.description}",
+                t2.time.strftime("%I:%M %p"),
+            ])
+        print(tabulate(rows,
+                       headers=["Task A", "Window A", "", "Task B", "Start B"],
+                       tablefmt="rounded_outline"))
         print()
     else:
-        print("No scheduling conflicts detected.\n")
+        print("✅  No scheduling conflicts detected.\n")
 
+
+# ─────────────────────────────────────────────
+# Demo Functions
+# ─────────────────────────────────────────────
 
 def demo_filtering(scheduler: Scheduler) -> None:
     """Demo filtering tasks by pet name, status, and priority."""
-    today = date.today()
+    today     = date.today()
     all_tasks = scheduler.get_todays_tasks(today)
 
-    bella_tasks = scheduler.filter_tasks(all_tasks, pet_name="Bella")
-    print(f"Bella's tasks today: {len(bella_tasks)}")
-    for t in bella_tasks:
-        print(f"  - {t.description} at {t.time.strftime('%I:%M %p')}")
-
-    pending = scheduler.filter_tasks(all_tasks, completed=False)
-    print(f"\nPending tasks: {len(pending)}")
-
+    bella_tasks  = scheduler.filter_tasks(all_tasks, pet_name="Bella")
+    pending      = scheduler.filter_tasks(all_tasks, completed=False)
     high_priority = scheduler.filter_tasks(all_tasks, priority="High")
-    print(f"High priority tasks: {len(high_priority)}\n")
+
+    print("🔍  FILTERING DEMO")
+    print(tabulate(
+        [
+            ["Bella's tasks today",  len(bella_tasks)],
+            ["Pending tasks",        len(pending)],
+            ["High priority tasks",  len(high_priority)],
+        ],
+        headers=["Filter", "Count"],
+        tablefmt="rounded_outline",
+    ))
+
+    print("\n  Bella's tasks:")
+    for t in bella_tasks:
+        print(f"    {PRIORITY_EMOJI.get(t.priority,'⚪')}  "
+              f"{t.time.strftime('%I:%M %p')}  {t.description}")
+    print()
 
 
 def demo_recurrence(scheduler: Scheduler) -> None:
@@ -145,148 +184,160 @@ def demo_recurrence(scheduler: Scheduler) -> None:
     )
 
     if morning_walk:
-        print(f"Marking '{morning_walk.description}' as complete...")
+        print(f"🔄  Marking '{morning_walk.description}' as complete...")
         scheduler.mark_task_complete(morning_walk.id)
-        print("Done. Next recurrence has been auto-scheduled for tomorrow.\n")
+        tomorrow_tasks = scheduler.get_todays_tasks(today + timedelta(days=1))
+        recurred = next(
+            (t for t in tomorrow_tasks if t.description == "Morning Walk"), None
+        )
+        status = f"✅ rescheduled for {recurred.time.strftime('%b %d %I:%M %p')}" \
+                 if recurred else "⚠️  no recurrence found"
+        print(f"  Next occurrence: {status}\n")
 
 
 def demo_sorting_and_filtering(scheduler: Scheduler) -> None:
     """Demonstrate sorting and filtering with tasks added out of order."""
-    print("-" * 55)
-    print("  SORTING AND FILTERING DEMO")
-    print("-" * 55)
+    print("─" * 60)
+    print("  SORTING & FILTERING DEMO")
+    print("─" * 60)
 
-    # Create a temporary owner with tasks added OUT OF ORDER intentionally
     temp_owner = Owner(name="Sort Test")
-    temp_pet = Pet(name="Rex", species="Dog")
+    temp_pet   = Pet(name="Rex", species="Dog")
 
-    # Added deliberately out of chronological order
     temp_pet.add_task(Task(
-        description="Evening Walk",
-        pet_name="Rex",
+        description="Evening Walk",      pet_name="Rex",
         time=datetime.now().replace(hour=18, minute=0, second=0, microsecond=0),
-        duration_minutes=30,
-        priority="Low",
-        frequency="daily",
+        duration_minutes=30, priority="Low",    frequency="daily",
     ))
     temp_pet.add_task(Task(
-        description="Morning Medication",
-        pet_name="Rex",
-        time=datetime.now().replace(hour=7, minute=0, second=0, microsecond=0),
-        duration_minutes=5,
-        priority="High",
-        frequency="daily",
+        description="Morning Medication", pet_name="Rex",
+        time=datetime.now().replace(hour=7,  minute=0, second=0, microsecond=0),
+        duration_minutes=5,  priority="High",   frequency="daily",
     ))
     temp_pet.add_task(Task(
-        description="Midday Feed",
-        pet_name="Rex",
+        description="Midday Feed",        pet_name="Rex",
         time=datetime.now().replace(hour=12, minute=0, second=0, microsecond=0),
-        duration_minutes=10,
-        priority="Medium",
-        frequency="daily",
+        duration_minutes=10, priority="Medium", frequency="daily",
     ))
 
     temp_owner.add_pet(temp_pet)
     temp_scheduler = Scheduler(temp_owner)
+    raw_tasks      = temp_pet.get_tasks()
 
-    raw_tasks = temp_pet.get_tasks()
+    def task_table(tasks, title):
+        print(f"\n  {title}")
+        rows = [[f"{PRIORITY_EMOJI.get(t.priority,'⚪')} {t.priority}",
+                 t.time.strftime("%I:%M %p"), t.description] for t in tasks]
+        print(tabulate(rows, headers=["Priority", "Time", "Task"],
+                       tablefmt="rounded_outline"))
 
-    # Print UNSORTED order
-    print("\n  Tasks as added (unsorted):")
-    for t in raw_tasks:
-        print(f"    {t.time.strftime('%I:%M %p')} - {t.description} [{t.priority}]")
+    task_table(raw_tasks,                                             "As added (unsorted):")
+    task_table(temp_scheduler.sort_by_time(raw_tasks),               "sort_by_time():")
+    task_table(temp_scheduler.sort_by_time(raw_tasks,
+               priority_first=True),                                  "sort_by_time(priority_first=True):")
 
-    # Print SORTED by time
-    sorted_tasks = temp_scheduler.sort_by_time(raw_tasks)
-    print("\n  After sort_by_time():")
-    for t in sorted_tasks:
-        print(f"    {t.time.strftime('%I:%M %p')} - {t.description} [{t.priority}]")
-
-    # Print SORTED by priority first
-    priority_sorted = temp_scheduler.sort_by_time(raw_tasks, priority_first=True)
-    print("\n  After sort_by_time(priority_first=True):")
-    for t in priority_sorted:
-        print(f"    {t.time.strftime('%I:%M %p')} - {t.description} [{t.priority}]")
-
-    # Filter by completion status
     pending = temp_scheduler.filter_tasks(raw_tasks, completed=False)
-    print(f"\n  Pending tasks (filter completed=False): {len(pending)}")
-
-    # Filter by priority
-    high = temp_scheduler.filter_tasks(raw_tasks, priority="High")
-    print(f"  High priority tasks only: {len(high)}")
+    high    = temp_scheduler.filter_tasks(raw_tasks, priority="High")
+    print(f"\n  Pending tasks (completed=False): {len(pending)}")
+    print(f"  High priority only: {len(high)}")
     for t in high:
         print(f"    - {t.description}")
+    print()
 
-    print("-" * 55 + "\n")
 
 def demo_conflict_detection(scheduler: Scheduler) -> None:
-    """Demo conflict detection by scheduling two tasks at the same time."""
-    print("-" * 55)
+    """Demo conflict detection by scheduling overlapping tasks."""
+    print("─" * 60)
     print("  CONFLICT DETECTION DEMO")
-    print("-" * 55)
+    print("─" * 60)
 
-    # Create a temporary owner with conflicting tasks
-    temp_owner = Owner(name="Conflict Test")
-    temp_pet = Pet(name="Max", species="Dog")
+    temp_owner    = Owner(name="Conflict Test")
+    temp_pet      = Pet(name="Max", species="Dog")
+    conflict_time = datetime.now().replace(hour=10, minute=0, second=0, microsecond=0)
 
-    conflict_time = datetime.now().replace(
-        hour=10, minute=0, second=0, microsecond=0
-    )
-
-    # Two tasks starting at the same time — direct conflict
     temp_pet.add_task(Task(
-        description="Vet Appointment",
-        pet_name="Max",
-        time=conflict_time,
-        duration_minutes=60,
-        priority="High",
-        frequency="once",
+        description="Vet Appointment",  pet_name="Max",
+        time=conflict_time,             duration_minutes=60,
+        priority="High",                frequency="once",
     ))
-
     temp_pet.add_task(Task(
-        description="Grooming Session",
-        pet_name="Max",
-        time=conflict_time,
-        duration_minutes=45,
-        priority="Medium",
-        frequency="once",
+        description="Grooming Session", pet_name="Max",
+        time=conflict_time,             duration_minutes=45,
+        priority="Medium",              frequency="once",
     ))
-
-    # A third task that overlaps (starts 30 min in, before first task ends)
     temp_pet.add_task(Task(
-        description="Training Class",
-        pet_name="Max",
-        time=conflict_time.replace(minute=30),
-        duration_minutes=60,
-        priority="Medium",
-        frequency="weekly",
+        description="Training Class",   pet_name="Max",
+        time=conflict_time.replace(minute=30), duration_minutes=60,
+        priority="Medium",              frequency="weekly",
     ))
 
     temp_owner.add_pet(temp_pet)
     temp_scheduler = Scheduler(temp_owner)
-
-    from datetime import date
-    todays_tasks = temp_scheduler.get_todays_tasks(date.today())
-    conflicts = temp_scheduler.detect_conflicts(todays_tasks)
+    todays_tasks   = temp_scheduler.get_todays_tasks(date.today())
+    conflicts      = temp_scheduler.detect_conflicts(todays_tasks)
 
     if conflicts:
-        print(f"\n  WARNING: {len(conflicts)} conflict(s) detected:")
+        print(f"\n  ⚠️  {len(conflicts)} conflict(s) detected:")
+        rows = []
         for t1, t2 in conflicts:
             t1_end = t1.time + timedelta(minutes=t1.duration_minutes)
-            print(
-                f"  -> {t1.description} "
-                f"({t1.time.strftime('%I:%M %p')} - {t1_end.strftime('%I:%M %p')}) "
-                f"conflicts with {t2.description} "
-                f"({t2.time.strftime('%I:%M %p')})"
-            )
+            rows.append([
+                f"{PRIORITY_EMOJI.get(t1.priority,'')} {t1.description}",
+                f"{t1.time.strftime('%I:%M %p')}–{t1_end.strftime('%I:%M %p')}",
+                "↔",
+                f"{PRIORITY_EMOJI.get(t2.priority,'')} {t2.description}",
+            ])
+        print(tabulate(rows,
+                       headers=["Task A", "Window", "", "Task B"],
+                       tablefmt="rounded_outline"))
     else:
         print("  No conflicts detected.")
+    print()
 
-    print("-" * 55 + "\n")
+
+# ── Challenge 1: Next Available Slot Demo ─────────────────────────────────────
+
+def demo_next_available_slot(scheduler: Scheduler) -> None:
+    """Demo the find_next_available_slot() algorithm."""
+    print("─" * 60)
+    print("  NEXT AVAILABLE SLOT DEMO  (Challenge 1)")
+    print("─" * 60)
+
+    for duration in [15, 30, 60, 90]:
+        slot = scheduler.find_next_available_slot(duration_minutes=duration)
+        if slot:
+            print(f"  ✅  Next open {duration}-min slot: "
+                  f"{slot.strftime('%I:%M %p')}")
+        else:
+            print(f"  ❌  No open {duration}-min slot found today (8 AM–8 PM)")
+    print()
+
+
+# ── Challenge 2: JSON Persistence Demo ───────────────────────────────────────
+
+def demo_persistence(owner: Owner) -> None:
+    """Demo save_to_json and load_from_json round-trip."""
+    print("─" * 60)
+    print("  JSON PERSISTENCE DEMO  (Challenge 2)")
+    print("─" * 60)
+
+    owner.save_to_json("data.json")
+    print("  💾  Saved to data.json")
+
+    restored = Owner.load_from_json("data.json")
+    total    = len(restored.get_all_tasks())
+    print(f"  📂  Loaded from data.json — owner: '{restored.name}', "
+          f"pets: {len(restored.pets)}, tasks: {total}")
+    print(f"  ✅  Round-trip successful: "
+          f"{'PASS' if total == len(owner.get_all_tasks()) else 'FAIL'}\n")
+
+
+# ─────────────────────────────────────────────
+# Entry Point
+# ─────────────────────────────────────────────
 
 if __name__ == "__main__":
-    owner = build_demo_data()
+    owner     = build_demo_data()
     scheduler = Scheduler(owner)
 
     print_schedule(scheduler)
@@ -294,7 +345,9 @@ if __name__ == "__main__":
     demo_filtering(scheduler)
     demo_recurrence(scheduler)
     demo_sorting_and_filtering(scheduler)
-    demo_conflict_detection(scheduler)    # ← add this line
+    demo_conflict_detection(scheduler)
+    demo_next_available_slot(scheduler)       # Challenge 1
+    demo_persistence(owner)                   # Challenge 2
 
-    print("Updated schedule after marking Morning Walk complete:")
+    print("📅  Updated schedule after marking Morning Walk complete:")
     print_schedule(scheduler)
