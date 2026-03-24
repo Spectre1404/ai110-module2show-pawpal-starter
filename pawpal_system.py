@@ -108,27 +108,29 @@ class Scheduler:
         return result
 
     def mark_task_complete(self, task_id: str) -> None:
-        """Mark the task matching the given ID as complete and schedule its next recurrence if needed."""
-        for pet in self.owner.pets.values():
-            for task in list(pet.tasks):
-                if task.id == task_id:
-                    task.mark_complete()
-                    if task.frequency == "daily":
-                        delta = timedelta(days=1)
-                    elif task.frequency == "weekly":
-                        delta = timedelta(weeks=1)
-                    else:
-                        return
-                    new_task = Task(
-                        description=task.description,
-                        pet_name=task.pet_name,
-                        time=task.time + delta,
-                        duration_minutes=task.duration_minutes,
-                        priority=task.priority,
-                        frequency=task.frequency,
-                    )
-                    pet.add_task(new_task)
+    """Mark the task matching the given ID as complete and schedule its next recurrence if needed."""
+    for pet in self.owner.pets.values():
+        for task in list(pet.tasks):
+            if task.id == task_id:
+                if task.completed:        # ← NEW: prevents double recurrence
                     return
+                task.mark_complete()
+                if task.frequency == "daily":
+                    delta = timedelta(days=1)
+                elif task.frequency == "weekly":
+                    delta = timedelta(weeks=1)
+                else:
+                    return
+                new_task = Task(
+                    description=task.description,
+                    pet_name=task.pet_name,
+                    time=task.time + delta,
+                    duration_minutes=task.duration_minutes,
+                    priority=task.priority,
+                    frequency=task.frequency,
+                )
+                pet.add_task(new_task)
+                return
 
     def detect_conflicts(self, tasks: List[Task]) -> List[Tuple[Task, Task]]:
         """Return pairs of tasks that overlap based on start time and duration."""
