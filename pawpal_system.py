@@ -80,8 +80,14 @@ class Scheduler:
             if task.time.date() == target_date
         ]
 
-    def sort_by_time(self, tasks: List[Task]) -> List[Task]:
-        """Return a new list of tasks sorted in ascending chronological order."""
+    def sort_by_time(self, tasks: List[Task], priority_first: bool = False) -> List[Task]:
+        """Return tasks sorted by time, or by priority then time if priority_first is True."""
+        priority_weights = {"High": 1, "Medium": 2, "Low": 3}
+        if priority_first:
+            return sorted(
+                tasks,
+                key=lambda t: (priority_weights.get(t.priority, 4), t.time)
+            )
         return sorted(tasks, key=lambda t: t.time)
 
     def filter_tasks(
@@ -125,14 +131,23 @@ class Scheduler:
                     return
 
     def detect_conflicts(self, tasks: List[Task]) -> List[Tuple[Task, Task]]:
-        """Return all pairs of tasks that share the same scheduled time."""
+        """Return pairs of tasks that overlap based on start time and duration."""
         conflicts: List[Tuple[Task, Task]] = []
         sorted_tasks = self.sort_by_time(tasks)
         n = len(sorted_tasks)
         for i in range(n):
             for j in range(i + 1, n):
-                if sorted_tasks[i].time == sorted_tasks[j].time:
-                    conflicts.append((sorted_tasks[i], sorted_tasks[j]))
-                else:
-                    break
+                a = sorted_tasks[i]
+                b = sorted_tasks[j]
+                a_end = a.time + timedelta(minutes=a.duration_minutes)
+                b_end = b.time + timedelta(minutes=b.duration_minutes)
+                if a.time < b_end and b.time < a_end:
+                    conflicts.append((a, b))
         return conflicts
+
+    def get_recurring_tasks(self) -> List[Task]:
+        """Return all incomplete tasks with a daily or weekly frequency."""
+        return [
+            task for task in self.owner.get_all_tasks()
+            if not task.completed and task.frequency in {"daily", "weekly"}
+        ]
