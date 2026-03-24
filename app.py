@@ -117,19 +117,29 @@ st.divider()
 # ── Step 4: View Today's Schedule ─────────────────────────────────────────
 st.subheader("Step 4: Today's Schedule")
 
-if st.button("Generate Schedule"):
-    all_today = scheduler.get_todays_tasks(date.today())
-    all_today = scheduler.sort_by_time(all_today)
+priority_first = st.checkbox("Sort by priority first, then time")
 
-    # Conflict detection
+if st.button("Generate Schedule"):
+    from datetime import timedelta
+
+    all_today = scheduler.get_todays_tasks(date.today())
+
+    # Sort based on user preference
+    all_today = scheduler.sort_by_time(all_today, priority_first=priority_first)
+
+    # Conflict/overlap detection
     conflicts = scheduler.detect_conflicts(all_today)
     if conflicts:
         for t1, t2 in conflicts:
             st.warning(
-                f"Conflict at {t1.time.strftime('%I:%M %p')}: "
-                f"{t1.pet_name} ({t1.description}) vs "
-                f"{t2.pet_name} ({t2.description})"
+                f"Overlap: {t1.pet_name} ({t1.description}) "
+                f"{t1.time.strftime('%I:%M %p')} - "
+                f"{(t1.time + timedelta(minutes=t1.duration_minutes)).strftime('%I:%M %p')} "
+                f"overlaps with {t2.pet_name} ({t2.description}) "
+                f"{t2.time.strftime('%I:%M %p')}"
             )
+    else:
+        st.success("No scheduling conflicts detected.")
 
     if not all_today:
         st.info("No tasks scheduled for today.")
@@ -141,9 +151,20 @@ if st.button("Generate Schedule"):
                 "Task": t.description,
                 "Priority": t.priority,
                 "Duration (min)": t.duration_minutes,
+                "Frequency": t.frequency,
                 "Status": "Done" if t.completed else "Pending",
             }
             for t in all_today
         ]
         st.table(rows)
         st.success(f"Total tasks today: {len(all_today)}")
+
+    # Show recurring tasks
+    recurring = scheduler.get_recurring_tasks()
+    if recurring:
+        st.subheader("Recurring Tasks")
+        for t in recurring:
+            st.info(
+                f"{t.pet_name}: {t.description} "
+                f"({t.frequency}) — next at {t.time.strftime('%I:%M %p')}"
+            )
